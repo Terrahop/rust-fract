@@ -8,9 +8,10 @@ use astrup::utils::*;
 use constants::*;
 use ggez::{conf::*, event::*, graphics::*, input::*, mint::Vector2, timer, *};
 use nalgebra::Point2;
+use std::str::FromStr;
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Write},
+    io::{prelude::*, BufReader, BufWriter, Write},
     path::PathBuf,
 };
 
@@ -166,7 +167,14 @@ impl ggez::event::EventHandler for PlayingState {
         }
         if keycode == KeyCode::L {
             println!("L key was released, Loading Coordinates");
-            //load_coordinates();
+            let (fractal_center_x, fractal_center_y, fractal_zoom, fractal_iterations) =
+                load_coordinates().unwrap();
+
+            self.fractal_center_x = fractal_center_x;
+            self.fractal_center_y = fractal_center_y;
+            self.fractal_zoom = fractal_zoom;
+            self.fractal_iterations = fractal_iterations;
+            self.fractal_rendered = false;
         }
     }
 }
@@ -230,8 +238,19 @@ fn save_coordinates(state: &mut PlayingState, _ctx: &mut Context) {
     }
 }
 
-// fn load_coordinates() -> (f64, f64, f64, f64) {
-// }
+fn load_coordinates() -> Result<(f64, f64, f64, f64), Box<dyn std::error::Error>> {
+    let input = File::open("coords")?;
+    let buff_reader = BufReader::new(input);
+
+    let mut loaded: Vec<f64> = Vec::new();
+
+    for line in buff_reader.lines() {
+        println!("{:?}", line);
+        loaded.push(f64::from_str(&line?)?);
+    }
+
+    Ok((loaded[0], loaded[1], loaded[2], loaded[3]))
+}
 
 fn render_stats(
     _stat: &str,
