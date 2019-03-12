@@ -1,6 +1,6 @@
 # **rust-fract**
 
-### **NOTE, if you are viewing this on github, you are looking at a mirror, original is on gitlab [here](https://gitlab.com/Terrahop/rust-fract)**
+### **NOTE, if you are viewing this on github, you are looking at a mirror, original is on gitlab [here](https://gitlab.com/Terrahop/rust-fract) for issues, PR's etc.**
 
 A simple fractal viewing game in rust using [ggez](https://github.com/ggez/ggez)
 
@@ -27,8 +27,8 @@ A simple fractal viewing game in rust using [ggez](https://github.com/ggez/ggez)
 * MacOS: Unsupported
 
 ## Requirements
-* OpenGL 3.2 or later
-* Decent hardware or you'll be waiting a while
+* Hardware supporting OpenGL 3.2 or later
+* Rust `stable-x86_64-unknown-linux-gnu` toolchain
 
 # Usage
 
@@ -43,7 +43,7 @@ cargo run --release
 
 * `x` and `z` to zoom in and out respectively
 * Arrow keys to pan view
-* `s` to save coordinates and `l` to load coordinates last save coordinates
+* `s` to save coordinates and `l` to load last saved coordinates
 * `=/+` to increase quality(iterations)
-* `-/_` to decrease quality(iterations)
+* `0` to decrease quality(iterations)
 * `Escape` to quit
