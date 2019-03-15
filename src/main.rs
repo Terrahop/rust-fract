@@ -8,11 +8,11 @@ use astrup::utils::*;
 use constants::*;
 use ggez::{conf::*, event::*, graphics::*, input::*, mint::Vector2, timer, *};
 use nalgebra::Point2;
-use std::str::FromStr;
 use std::{
     fs::File,
-    io::{prelude::*, BufReader, BufWriter, Write},
+    io::{prelude::*, BufReader, Write},
     path::PathBuf,
+    str::FromStr,
 };
 
 struct PlayingState {
@@ -72,12 +72,15 @@ impl ggez::event::EventHandler for PlayingState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
         clear(ctx, WHITE);
 
+        // This app use's it's own ticklist buffer in order to get a more accurate framerate over the past
+        // 5 frames instead of ggez's 200 frame average for fps
         self.frame_ticks = update_tick_list(&self.frame_ticks, ctx);
 
-        render_stats("delta", ctx, self).expect("Error rendering stats");
-        render_stats("time", ctx, self).expect("Error rendering stats");
-        render_stats("fractal", ctx, self).expect("Error rendering stats");
-        render_stats("fps", ctx, self).expect("Error rendering stats");
+        // Render stat's to the screen
+        render_stats("delta", ctx, self).expect("Error rendering delta time");
+        render_stats("time", ctx, self).expect("Error rendering app time");
+        render_stats("fractal", ctx, self).expect("Error rendering fractal stats");
+        render_stats("fps", ctx, self).expect("Error rendering fps");
 
         let (fractal_buffer, fractal_rendered) = render_mandel(
             ctx,
@@ -207,6 +210,7 @@ fn convert_order_of_magnitude(zoom: f64) -> f64 {
     }
 }
 
+// Updates playing state's ticklist for fps
 fn update_tick_list(frame_ticks: &[i16], ctx: &mut Context) -> Vec<i16> {
     let mut ticks = frame_ticks.to_owned();
 
@@ -222,6 +226,7 @@ fn update_tick_list(frame_ticks: &[i16], ctx: &mut Context) -> Vec<i16> {
     ticks
 }
 
+// Save current view coordinates to a file
 fn save_coordinates(state: &mut PlayingState, _ctx: &mut Context) {
     let path = "coords";
 
@@ -238,6 +243,7 @@ fn save_coordinates(state: &mut PlayingState, _ctx: &mut Context) {
     }
 }
 
+// Load view coordinates from the coords file
 fn load_coordinates() -> Result<(f64, f64, f64, f64), Box<dyn std::error::Error>> {
     let input = File::open("coords")?;
     let buff_reader = BufReader::new(input);
@@ -269,6 +275,7 @@ fn render_stats(
     let mut text_location: Point2<f32> = Point2::new(0.0, 0.0);
     let mut stat_text: Text;
 
+    // Draw delta time to screen
     if stat == "delta" {
         let frame_time = timer::delta(ctx).subsec_millis();
 
@@ -279,7 +286,9 @@ fn render_stats(
             font,
             scale,
         });
-    } else if stat == "fractal" {
+    }
+    // Draw fractal stat's to screen
+    else if stat == "fractal" {
         text_location = Point2::new(1.5, window_height / 2.0);
 
         stat_text = Text::new(TextFragment {
@@ -295,7 +304,9 @@ fn render_stats(
             font,
             scale,
         });
-    } else if stat == "time" {
+    }
+    // Draw time since start to screen
+    else if stat == "time" {
         let running_time = timer::time_since_start(ctx).as_secs();
 
         text_location = Point2::new(window_width - 350.0, 0.0);
@@ -305,7 +316,9 @@ fn render_stats(
             font,
             scale,
         });
-    } else if stat == "fps" {
+    }
+    // Draw fps to screen
+    else if stat == "fps" {
         let mut tick_total: i16 = 0;
 
         for tick in state.frame_ticks.to_owned() {
@@ -346,9 +359,11 @@ fn render_mandel(
 
     let mut rendered = rendered;
 
+    // Treat the cemter of the image as the center of the fractal for zooming in
     let min_x = center_x - (zoom / 2.0);
     let min_y = center_y - (zoom / 2.0);
 
+    // If the fractal has alread been rendered, don't re-render on every frame
     if !rendered {
         pix_buff.clear();
         for y in 0..FRAC_SIZE_HEIGHT as i64 {
@@ -376,6 +391,7 @@ fn render_mandel(
         pix_buff = pixel_buffer.clone();
     }
 
+    // Create the fractal image from the computed pixel buffer
     let fractal_image = Image::from_rgba8(
         ctx,
         FRAC_SIZE_WIDTH as u16,
@@ -384,7 +400,10 @@ fn render_mandel(
     )
     .unwrap();
 
-    let scale: Vector2<f32> = Vector2 { x: 1.0, y: 1.6 };
+    // Set the scale of the fractal image
+    let scale: Vector2<f32> = Vector2 { x: 1.0, y: 1.77 };
+
+    // set the location of the fractal image to the center of the view
     let point: Point2<f32> = Point2::new(0.0, 0.0);
 
     draw(
@@ -397,6 +416,7 @@ fn render_mandel(
     (pix_buff, rendered)
 }
 
+// Use the x,y coordinates to compute whether the point is in the Mandelbrot set
 fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
     let (mut z, mut c) = (x, y);
     for i in 0..iterations as i16 {
@@ -412,8 +432,10 @@ fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
 }
 
 pub fn main() {
+    // Set the default startup state to playing
     let state_playing = &mut PlayingState::new();
 
+    // Setup initial app configuration
     let app_config = conf::Conf {
         window_mode: WindowMode {
             width: APP_WIDTH,
@@ -426,7 +448,7 @@ pub fn main() {
             ..WindowMode::default()
         },
         window_setup: WindowSetup {
-            title: "Test".to_string(),
+            title: "Fractal".to_string(),
             samples: NumSamples::Two,
             icon: "".to_owned(),
             vsync: true,
@@ -437,11 +459,12 @@ pub fn main() {
         modules: ModuleConf::default(),
     };
 
-    let (ref mut ctx, ref mut event_loop) = ContextBuilder::new("FractalBoi", "Terrahop")
+    let (ref mut ctx, ref mut event_loop) = ContextBuilder::new("Fractal", "Terrahop")
         .add_resource_path(PathBuf::from("./assets"))
         .conf(app_config)
         .build()
         .unwrap();
 
-    event::run(ctx, event_loop, state_playing).expect("Something went wrong");
+    event::run(ctx, event_loop, state_playing)
+        .expect("Something went wrong transitioning into the playing state");
 }
