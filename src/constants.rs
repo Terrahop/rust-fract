@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 pub const ZOOM: f64 = 1.0;
-pub const ITERATIONS: f64 = 50.0;
+pub const ITERATIONS: f64 = 100.0;
 
 pub const FRAC_SIZE_WIDTH: f64 = 1920.0;
 pub const FRAC_SIZE_HEIGHT: f64 = 1080.0;

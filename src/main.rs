@@ -32,10 +32,14 @@ impl Pixel {
     pub fn to_tuple(self) -> (u8, u8, u8, u8) {
         (self.r, self.g, self.b, self.a)
     }
+
+    pub fn to_array(self) -> [u8; 4] {
+        [self.r, self.g, self.b, self.a]
+    }
 }
 
 struct PixelBuffer {
-    buffer: Vec<u8>,
+    buffer: Option<Vec<u8>>,
     row_length: usize,
 }
 
@@ -51,25 +55,34 @@ impl PixelBuffer {
         }
 
         PixelBuffer {
-            buffer,
+            buffer: Some(buffer),
             row_length: width,
         }
     }
 
+    pub fn use_buffer(&mut self, buffer: Vec<u8>) {
+        self.buffer.replace(buffer);
+    }
+
+    pub fn take_buffer(&mut self) -> Option<Vec<u8>> {
+        self.buffer.take()
+    }
+
     pub fn get_buffer(&self) -> &Vec<u8> {
-        &self.buffer
+        &self.buffer.as_ref().unwrap()
     }
     pub fn get_mut_buffer(&mut self) -> &mut Vec<u8> {
-        &mut self.buffer
+        self.buffer.as_mut().unwrap()
     }
 
     pub fn write_pixel(&mut self, x: usize, y: usize, pix: Pixel) {
         let idx = y * (self.row_length * 4) + (x * 4);
         let (r, g, b, a) = pix.to_tuple();
-        self.buffer[idx] = r;
-        self.buffer[idx + 1] = g;
-        self.buffer[idx + 2] = b;
-        self.buffer[idx + 3] = a;
+        let mut buffer = self.buffer.as_mut().unwrap();
+        buffer[idx] = r;
+        buffer[idx + 1] = g;
+        buffer[idx + 2] = b;
+        buffer[idx + 3] = a;
     }
 
     pub fn write_pixel_at(&mut self, pix_idx: usize, pix: Pixel) {
@@ -78,11 +91,11 @@ impl PixelBuffer {
         let y = pix_idx / self.row_length;
         let x = pix_idx % self.row_length;
         let idx = y * (self.row_length * 4) + (x * 4);
-
-        self.buffer[idx] = r;
-        self.buffer[idx + 1] = g;
-        self.buffer[idx + 2] = b;
-        self.buffer[idx + 3] = a;
+        let mut buffer = self.buffer.as_mut().unwrap();
+        buffer[idx] = r;
+        buffer[idx + 1] = g;
+        buffer[idx + 2] = b;
+        buffer[idx + 3] = a;
     }
 }
 
@@ -400,6 +413,28 @@ fn render_stats(
     draw(ctx, &stat_text, DrawParam::default().dest(text_location))
 }
 
+fn fast_flatten(mut from: Vec<[u8; 4]>) -> Vec<u8> {
+    let ptr = from.as_mut_ptr();
+    let length = from.len() * 4;
+    let capacity = from.capacity() * 4;
+    let new = unsafe {
+        Vec::from_raw_parts(ptr as *mut u8, length, capacity)
+    };
+    std::mem::forget(from);
+    new
+}
+
+fn fast_nested(mut from: Vec<u8>) -> Vec<[u8; 4]> {
+    let ptr = from.as_mut_ptr();
+    let length = from.len() / 4;
+    let capacity = from.capacity() / 4;
+    let mut new = unsafe {
+        Vec::from_raw_parts(ptr as *mut [u8; 4], length, capacity)
+    };
+    std::mem::forget(from);
+    new
+}
+
 fn render_mandel(
     ctx: &mut Context,
     pix_buff: &mut PixelBuffer,
@@ -419,8 +454,6 @@ fn render_mandel(
     // If the fractal has already been rendered, don't re-render on every frame
 //    let mut set_buffer = Vec::with_capacity((FRAC_SIZE_WIDTH * FRAC_SIZE_HEIGHT) as usize);
     if true {
-        let row_length = (FRAC_SIZE_WIDTH * 4f64) as usize;
-        let col_length = (FRAC_SIZE_HEIGHT * 4f64) as usize;
 
         // let mut iter = pix_buff.into_iter().step_by(4).enumerate();
         // let mut iter = iter.by_ref();
@@ -428,6 +461,7 @@ fn render_mandel(
         // ;
 //        let mut set_buffer = vec![0f64; ((FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize)];
 
+        let mut set = fast_nested(pix_buff.take_buffer().unwrap());
         (0..(FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize).into_par_iter().map(|idx| {
             let x = idx % FRAC_SIZE_WIDTH as usize;
             let y = idx / FRAC_SIZE_WIDTH as usize;
@@ -436,26 +470,18 @@ fn render_mandel(
                 min_y + y as f64 / FRAC_SIZE_HEIGHT * zoom,
                 iterations,
             );
-            let idx = y * (FRAC_SIZE_WIDTH as usize) + x;
             is_in_set
-        }).collect_into_vec(set_buffer);
+        }).map(|item| {
+            [0, 0, 255, if item == 0.0 { 255 } else { (item * 255.0) as u8 }]
+        }).collect_into_vec(&mut set);
+        pix_buff.use_buffer(fast_flatten(set));
 
-        set_buffer.into_iter().enumerate().for_each(|(idx, item)| {
-            pix_buff.write_pixel_at(
-                idx,
-                Pixel {
-                    r: 0,
-                    g: 0,
-                    b: 255,
-                    a: if *item == 0.0 { 255 } else { (*item * 255.0) as u8 },
-                },
-            );
-        });
 
 
         // println!("{:?}", pix_buff.count());
-        rendered = true;
+
     }
+    rendered = !rendered;
 
     // Create the fractal image from the computed pixel buffer
     //    let pix_buff = pix_buff_ref.lock().unwrap();
@@ -480,20 +506,20 @@ fn render_mandel(
     )
     .expect("Error drawing fractal");
 
-    rendered
+    (rendered)
 }
 
 // Use the x,y coordinates to compute whether the point is in the Mandelbrot set
 fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
     let (mut z, mut c) = (x, y);
-    let mut fc = 0.;
-    let mut pc = 0.;
-    for i in 0..iterations as i16 {
+    let mut fc;
+    let mut pc;
+    for i in 0..iterations as i32 {
         fc = z * z - c * c + x;
         pc = 2.0 * z * c + y;
         z = fc;
         c = pc;
-        if z * c > 4. {
+        if z * c > 5. {
             return f64::from(i) / iterations;
         }
     }
