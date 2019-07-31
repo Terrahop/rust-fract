@@ -15,6 +15,10 @@ use std::{
     str::FromStr,
 };
 
+//struct MenuState {
+//    dt: std::time::Duration,
+//}
+
 struct PlayingState {
     dt: std::time::Duration,
     frame_ticks: Vec<i16>,
@@ -53,7 +57,6 @@ impl ggez::event::EventHandler for PlayingState {
         if input::keyboard::is_key_repeated(ctx) && keyboard::is_key_pressed(ctx, KeyCode::Z) {
             self.magnitude_scale = convert_order_of_magnitude(self.fractal_zoom);
 
-            println!("Z key is held down");
             self.fractal_zoom += 0.08 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
@@ -62,7 +65,6 @@ impl ggez::event::EventHandler for PlayingState {
         if input::keyboard::is_key_repeated(ctx) && keyboard::is_key_pressed(ctx, KeyCode::X) {
             self.magnitude_scale = convert_order_of_magnitude(self.fractal_zoom);
 
-            println!("X key is held down");
             self.fractal_zoom -= 0.08 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
@@ -75,12 +77,6 @@ impl ggez::event::EventHandler for PlayingState {
         // This app use's it's own ticklist buffer in order to get a more accurate framerate over the past
         // 5 frames instead of ggez's 200 frame average for fps
         self.frame_ticks = update_tick_list(&self.frame_ticks, ctx);
-
-        // Render stat's to the screen
-        render_stats("delta", ctx, self).expect("Error rendering delta time");
-        render_stats("time", ctx, self).expect("Error rendering app time");
-        render_stats("fractal", ctx, self).expect("Error rendering fractal stats");
-        render_stats("fps", ctx, self).expect("Error rendering fps");
 
         let (fractal_buffer, fractal_rendered) = render_mandel(
             ctx,
@@ -95,17 +91,21 @@ impl ggez::event::EventHandler for PlayingState {
         self.fractal_buffer = fractal_buffer;
         self.fractal_rendered = fractal_rendered;
 
+        // Render stat's to the screen
+        render_stats("delta", ctx, self).expect("Error rendering delta time");
+        render_stats("time", ctx, self).expect("Error rendering app time");
+        render_stats("fractal", ctx, self).expect("Error rendering fractal stats");
+        render_stats("fps", ctx, self).expect("Error rendering fps");
+
         present(ctx)
     }
 
     fn mouse_button_down_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         self.mouse_down = true;
-        println!("Mouse button pressed: {:?}, x: {}, y: {}", button, x, y);
     }
 
     fn mouse_button_up_event(&mut self, _ctx: &mut Context, button: MouseButton, x: f32, y: f32) {
         self.mouse_down = false;
-        println!("Mouse button released: {:?}, x: {}, y: {}", button, x, y);
     }
 
     fn key_up_event(&mut self, ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {
@@ -113,13 +113,11 @@ impl ggez::event::EventHandler for PlayingState {
         self.magnitude_scale = convert_order_of_magnitude(self.fractal_zoom);
 
         if keycode == KeyCode::Z {
-            println!("Z key was released");
             self.fractal_zoom += 0.08 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
         // Zoom In
         if keycode == KeyCode::X {
-            println!("X key was released");
             if self.fractal_zoom > 0.0 {
                 self.fractal_zoom -= 0.08 * self.magnitude_scale;
                 self.fractal_rendered = false;
@@ -127,37 +125,31 @@ impl ggez::event::EventHandler for PlayingState {
         }
         // Move View Up
         if keycode == KeyCode::Up {
-            println!("Up key was released");
             self.fractal_center_y -= 0.05 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
         // Move View Down
         if keycode == KeyCode::Down {
-            println!("Down key was released");
             self.fractal_center_y += 0.05 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
         // Move View Left
         if keycode == KeyCode::Left {
-            println!("Left key was released");
             self.fractal_center_x -= 0.05 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
         // Move View Right
         if keycode == KeyCode::Right {
-            println!("Right key was released");
             self.fractal_center_x += 0.05 * self.magnitude_scale;
             self.fractal_rendered = false;
         }
         // Increase iterations
         if keycode == KeyCode::Equals {
-            println!("Equals key was released");
             self.fractal_iterations += 100.0;
             self.fractal_rendered = false;
         }
         // Decrease iterations
         if keycode == KeyCode::Key0 {
-            println!("Minus key was released");
             if self.fractal_iterations > 100.0 {
                 self.fractal_iterations -= 100.0;
                 self.fractal_rendered = false;
@@ -184,30 +176,38 @@ impl ggez::event::EventHandler for PlayingState {
 
 fn convert_order_of_magnitude(zoom: f64) -> f64 {
     let order = order_of_magnitude(zoom);
+    let base = 10f64;
+
     match order {
         0 => 1.0,
         -1 => 1.0,
-        -2 => 0.1,
-        -3 => 0.01,
-        -4 => 0.001,
-        -5 => 0.000_1,
-        -6 => 0.000_01,
-        -7 => 0.000_001,
-        -8 => 0.000_000_1,
-        -9 => 0.000_000_01,
-        -10 => 0.000_000_001,
-        -11 => 0.000_000_000_1,
-        -12 => 0.000_000_000_01,
-        -13 => 0.000_000_000_001,
-        -14 => 0.000_000_000_000_1,
-        -15 => 0.000_000_000_000_01,
-        -16 => 0.000_000_000_000_001,
-        -17 => 0.000_000_000_000_000_1,
-        -18 => 0.000_000_000_000_000_01,
-        -19 => 0.000_000_000_000_000_001,
-        -20 => 0.000_000_000_000_000_000_1,
-        _ => 0.000_000_000_000_000_000_000_000_1,
+        _ => base.powi(order + 1)
     }
+
+    // match order {
+    //     0 => 1.0,
+    //     -1 => 1.0,
+    //     -2 => 0.1,
+    //     -3 => 0.01,
+    //     -4 => 0.001,
+    //     -5 => 0.000_1,
+    //     -6 => 0.000_01,
+    //     -7 => 0.000_001,
+    //     -8 => 0.000_000_1,
+    //     -9 => 0.000_000_01,
+    //     -10 => 0.000_000_001,
+    //     -11 => 0.000_000_000_1,
+    //     -12 => 0.000_000_000_01,
+    //     -13 => 0.000_000_000_001,
+    //     -14 => 0.000_000_000_000_1,
+    //     -15 => 0.000_000_000_000_01,
+    //     -16 => 0.000_000_000_000_001,
+    //     -17 => 0.000_000_000_000_000_1,
+    //     -18 => 0.000_000_000_000_000_01,
+    //     -19 => 0.000_000_000_000_000_001,
+    //     -20 => 0.000_000_000_000_000_000_1,
+    //     _ => 0.000_000_000_000_000_000_000_000_1,
+    // }
 }
 
 // Updates playing state's ticklist for fps
@@ -273,7 +273,7 @@ fn render_stats(
     let color = Some(Color::new(0.0, 0.0, 1.0, 1.0));
 
     let mut text_location: Point2<f32> = Point2::new(0.0, 0.0);
-    let mut stat_text: Text;
+    let stat_text: Text;
 
     // Draw delta time to screen
     if stat == "delta" {
@@ -359,11 +359,11 @@ fn render_mandel(
 
     let mut rendered = rendered;
 
-    // Treat the cemter of the image as the center of the fractal for zooming in
+    // Treat the center of the image as the center of the fractal for zooming in
     let min_x = center_x - (zoom / 2.0);
     let min_y = center_y - (zoom / 2.0);
 
-    // If the fractal has alread been rendered, don't re-render on every frame
+    // If the fractal has already been rendered, don't re-render on every frame
     if !rendered {
         pix_buff.clear();
         for y in 0..FRAC_SIZE_HEIGHT as i64 {
