@@ -6,15 +6,9 @@ mod constants;
 /// Use
 use astrup::utils::*;
 use constants::*;
-use ggez::{
-    conf::*,
-    event::*,
-    graphics::*,
-    input::*,
-    mint::Vector2,
-    timer,
-    * };
+use ggez::{conf::*, event::*, graphics::*, input::*, mint::Vector2, timer, *};
 use nalgebra::Point2;
+use rayon::prelude::*;
 use std::{
     fs::File,
     io::{prelude::*, BufReader, Write},
@@ -22,7 +16,6 @@ use std::{
     str::FromStr,
     sync::{Arc, Mutex},
 };
-use rayon::prelude::*;
 
 //struct MenuState {
 //    dt: std::time::Duration,
@@ -43,9 +36,8 @@ impl Pixel {
 
 struct PixelBuffer {
     buffer: Vec<u8>,
-    row_length: usize
+    row_length: usize,
 }
-
 
 impl PixelBuffer {
     pub fn new(width: usize, height: usize) -> PixelBuffer {
@@ -60,21 +52,37 @@ impl PixelBuffer {
 
         PixelBuffer {
             buffer,
-            row_length: width
+            row_length: width,
         }
     }
 
     pub fn get_buffer(&self) -> &Vec<u8> {
         &self.buffer
     }
+    pub fn get_mut_buffer(&mut self) -> &mut Vec<u8> {
+        &mut self.buffer
+    }
 
     pub fn write_pixel(&mut self, x: usize, y: usize, pix: Pixel) {
         let idx = y * (self.row_length * 4) + (x * 4);
         let (r, g, b, a) = pix.to_tuple();
         self.buffer[idx] = r;
-        self.buffer[idx+1] = g;
-        self.buffer[idx+2] = b;
-        self.buffer[idx+3] = a;
+        self.buffer[idx + 1] = g;
+        self.buffer[idx + 2] = b;
+        self.buffer[idx + 3] = a;
+    }
+
+    pub fn write_pixel_at(&mut self, pix_idx: usize, pix: Pixel) {
+        let (r, g, b, a) = pix.to_tuple();
+
+        let y = pix_idx / self.row_length;
+        let x = pix_idx % self.row_length;
+        let idx = y * (self.row_length * 4) + (x * 4);
+
+        self.buffer[idx] = r;
+        self.buffer[idx + 1] = g;
+        self.buffer[idx + 2] = b;
+        self.buffer[idx + 3] = a;
     }
 }
 
@@ -82,7 +90,8 @@ struct PlayingState {
     dt: std::time::Duration,
     frame_ticks: Vec<i16>,
     fractal_rendered: bool,
-    fractal_buffer: Arc<Mutex<PixelBuffer>>,
+    fractal_buffer: PixelBuffer,
+    set_buffer: Vec<f64>,
     fractal_zoom: f64,
     fractal_iterations: f64,
     fractal_center_x: f64,
@@ -93,13 +102,14 @@ struct PlayingState {
 
 impl PlayingState {
     fn new() -> PlayingState {
-        let initial_buffer = Arc::new(Mutex::new(PixelBuffer::new(FRAC_SIZE_WIDTH as usize, FRAC_SIZE_HEIGHT as usize)));
-
+        let initial_buffer = PixelBuffer::new(FRAC_SIZE_WIDTH as usize, FRAC_SIZE_HEIGHT as usize);
+        let inital_set = vec![0.; (FRAC_SIZE_WIDTH * FRAC_SIZE_HEIGHT) as usize];
         PlayingState {
             dt: std::time::Duration::new(0, 0),
             frame_ticks: Vec::new(),
             fractal_rendered: false,
             fractal_buffer: initial_buffer,
+            set_buffer: inital_set,
             fractal_zoom: ZOOM,
             fractal_iterations: ITERATIONS,
             fractal_center_x: FRACTAL_CENTER_X,
@@ -141,7 +151,8 @@ impl ggez::event::EventHandler for PlayingState {
 
         let fractal_rendered = render_mandel(
             ctx,
-            Arc::clone(&self.fractal_buffer),
+            &mut self.fractal_buffer,
+            &mut self.set_buffer,
             self.fractal_rendered,
             self.fractal_zoom,
             self.fractal_iterations,
@@ -160,11 +171,23 @@ impl ggez::event::EventHandler for PlayingState {
         present(ctx)
     }
 
-    fn mouse_button_down_event(&mut self, _ctx: &mut Context, _button: MouseButton, _x: f32, _y: f32) {
+    fn mouse_button_down_event(
+        &mut self,
+        _ctx: &mut Context,
+        _button: MouseButton,
+        _x: f32,
+        _y: f32,
+    ) {
         self.mouse_down = true;
     }
 
-    fn mouse_button_up_event(&mut self, _ctx: &mut Context, _button: MouseButton, _x: f32, _y: f32) {
+    fn mouse_button_up_event(
+        &mut self,
+        _ctx: &mut Context,
+        _button: MouseButton,
+        _x: f32,
+        _y: f32,
+    ) {
         self.mouse_down = false;
     }
 
@@ -237,7 +260,7 @@ fn convert_order_of_magnitude(zoom: f64) -> f64 {
     match order {
         0 => 1.0,
         -1 => 1.0,
-        _ => base.powi(order + 1)
+        _ => base.powi(order + 1),
     }
 }
 
@@ -318,7 +341,6 @@ fn render_stats(
             scale,
         });
     }
-
     // Draw fractal stat's to screen
     else if stat == "fractal" {
         text_location = Point2::new(1.5, window_height / 2.0);
@@ -337,7 +359,6 @@ fn render_stats(
             scale,
         });
     }
-
     // Draw time since start to screen
     else if stat == "time" {
         let running_time = timer::time_since_start(ctx).as_secs();
@@ -350,7 +371,6 @@ fn render_stats(
             scale,
         });
     }
-
     // Draw fps to screen
     else if stat == "fps" {
         let mut tick_total: i16 = 0;
@@ -382,23 +402,23 @@ fn render_stats(
 
 fn render_mandel(
     ctx: &mut Context,
-    pix_buff: Arc<Mutex<PixelBuffer>>,
+    pix_buff: &mut PixelBuffer,
+    set_buffer: &mut Vec<f64>,
     mut rendered: bool,
     zoom: f64,
     iterations: f64,
     center_x: f64,
     center_y: f64,
 ) -> bool {
-
     // Treat the center of the image as the center of the fractal for zooming in
     let min_x = center_x - (zoom / 2.0);
     let min_y = center_y - (zoom / 2.0);
 
-    let pix_buff_ref = Arc::clone(&pix_buff);
+    //    let pix_buff_ref = Arc::clone(&pix_buff);
 
     // If the fractal has already been rendered, don't re-render on every frame
-    if !rendered {
-
+//    let mut set_buffer = Vec::with_capacity((FRAC_SIZE_WIDTH * FRAC_SIZE_HEIGHT) as usize);
+    if true {
         let row_length = (FRAC_SIZE_WIDTH * 4f64) as usize;
         let col_length = (FRAC_SIZE_HEIGHT * 4f64) as usize;
 
@@ -406,77 +426,39 @@ fn render_mandel(
         // let mut iter = iter.by_ref();
 
         // ;
+//        let mut set_buffer = vec![0f64; ((FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize)];
 
-        (0..FRAC_SIZE_HEIGHT as usize).into_par_iter().for_each(|y| {
-            let pix_buff = Arc::clone(&pix_buff);
-            (0..FRAC_SIZE_WIDTH as usize).for_each(move |x| {
-                let is_in_set = compute_mandel(
-                    min_x + x as f64 / FRAC_SIZE_WIDTH * zoom,
-                    min_y + y as f64 / FRAC_SIZE_HEIGHT * zoom,
-                    iterations,
-                );
+        (0..(FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize).into_par_iter().map(|idx| {
+            let x = idx % FRAC_SIZE_WIDTH as usize;
+            let y = idx / FRAC_SIZE_WIDTH as usize;
+            let is_in_set = compute_mandel(
+                min_x + x as f64 / FRAC_SIZE_WIDTH * zoom,
+                min_y + y as f64 / FRAC_SIZE_HEIGHT * zoom,
+                iterations,
+            );
+            let idx = y * (FRAC_SIZE_WIDTH as usize) + x;
+            is_in_set
+        }).collect_into_vec(set_buffer);
 
-                let pix_buff_ref = Arc::clone(&pix_buff);
-                let mut pix_buff = pix_buff_ref.lock().unwrap();
-
-                if is_in_set != 0.0 {
-                    pix_buff.write_pixel(x, y, Pixel {
-                        r: 0,
-                        g: 0,
-                        b: 255,
-                        a: (is_in_set * 255.0) as u8,
-                    });
-                } else {
-                    pix_buff.write_pixel(x, y, Pixel {
-                        r: 0,
-                        g: 0,
-                        b: 255,
-                        a: 255,
-                    });
-                }
-            });
+        set_buffer.into_iter().enumerate().for_each(|(idx, item)| {
+            pix_buff.write_pixel_at(
+                idx,
+                Pixel {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: if *item == 0.0 { 255 } else { (*item * 255.0) as u8 },
+                },
+            );
         });
 
-        // pix_buff.clear();
-        // for y in 0..FRAC_SIZE_HEIGHT as usize {
-        //     for x in 0..FRAC_SIZE_WIDTH as usize {
-        //         let is_in_set = compute_mandel(
-        //             min_x + x as f64 / FRAC_SIZE_WIDTH * zoom,
-        //             min_y + y as f64 / FRAC_SIZE_HEIGHT * zoom,
-        //             iterations,
-        //         );
-        //         if is_in_set != 0.0 {
-        //             pix_buff.write_pixel(x, y, Pixel {
-        //                 r: 0,
-        //                 g: 0,
-        //                 b: 255,
-        //                 a: (is_in_set * 255.0) as u8,
-        //                 });
-        //             pix_buff.push(0);
-        //             pix_buff.push(0);
-        //             pix_buff.push(255);
-        //             pix_buff.push((is_in_set * 255.0) as u8);
-                // } else {
-                //         pix_buff.write_pixel(x, y, Pixel {
-                //         r: 0,
-                //         g: 0,
-                //         b: 0,
-                //         a: 255,
-                //     });
-        //             pix_buff.push(0);
-        //             pix_buff.push(0);
-        //             pix_buff.push(0);
-        //             pix_buff.push(255);
-            //     }
-            // }
-        // }
 
         // println!("{:?}", pix_buff.count());
         rendered = true;
     }
 
     // Create the fractal image from the computed pixel buffer
-    let pix_buff = pix_buff_ref.lock().unwrap();
+    //    let pix_buff = pix_buff_ref.lock().unwrap();
     let fractal_image = Image::from_rgba8(
         ctx,
         FRAC_SIZE_WIDTH as u16,
@@ -504,12 +486,14 @@ fn render_mandel(
 // Use the x,y coordinates to compute whether the point is in the Mandelbrot set
 fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
     let (mut z, mut c) = (x, y);
+    let mut fc = 0.;
+    let mut pc = 0.;
     for i in 0..iterations as i16 {
-        let fc = z * z - c * c + x;
-        let pc = 2.0 * z * c + y;
+        fc = z * z - c * c + x;
+        pc = 2.0 * z * c + y;
         z = fc;
         c = pc;
-        if z * c > 5.0 {
+        if z * c > 4. {
             return f64::from(i) / iterations;
         }
     }
@@ -517,6 +501,8 @@ fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
 }
 
 pub fn main() {
+
+    rayon::ThreadPoolBuilder::new().num_threads(0).build_global();
     // Set the default startup state to playing
     let state_playing = &mut PlayingState::new();
 
@@ -526,8 +512,7 @@ pub fn main() {
             width: APP_WIDTH,
             height: APP_HEIGHT,
             borderless: false,
-            fullscreen_type: FullscreenType::Desktop,
-            hidpi: false,
+            fullscreen_type: FullscreenType::Windowed,
             resizable: true,
             maximized: false,
             ..WindowMode::default()
@@ -538,7 +523,6 @@ pub fn main() {
             icon: "".to_owned(),
             vsync: true,
             srgb: true,
-            transparent: false,
         },
         backend: Backend::default().gl().version(3, 2),
         modules: ModuleConf::default(),
