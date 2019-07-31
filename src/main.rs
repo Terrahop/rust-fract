@@ -60,18 +60,26 @@ impl PixelBuffer {
         }
     }
 
-    pub fn use_buffer(&mut self, buffer: Vec<u8>) {
+    pub fn replace_raw(&mut self, buffer: Vec<u8>) {
         self.buffer.replace(buffer);
     }
 
-    pub fn take_buffer(&mut self) -> Option<Vec<u8>> {
+    pub fn take_raw(&mut self) -> Option<Vec<u8>> {
         self.buffer.take()
     }
 
-    pub fn get_buffer(&self) -> &Vec<u8> {
+    pub fn replace(&mut self, buffer: Vec<Pixel>) {
+        self.buffer.replace(PixelBuffer::fast_flatten(buffer));
+    }
+
+    pub fn take(&mut self) -> Vec<Pixel> {
+        PixelBuffer::fast_nested(self.buffer.take().unwrap())
+    }
+
+    pub fn get_raw(&self) -> &Vec<u8> {
         &self.buffer.as_ref().unwrap()
     }
-    pub fn get_mut_buffer(&mut self) -> &mut Vec<u8> {
+    pub fn get_mut_raw(&mut self) -> &mut Vec<u8> {
         self.buffer.as_mut().unwrap()
     }
 
@@ -96,6 +104,29 @@ impl PixelBuffer {
         buffer[idx + 1] = g;
         buffer[idx + 2] = b;
         buffer[idx + 3] = a;
+    }
+
+
+    fn fast_flatten(mut from: Vec<Pixel>) -> Vec<u8> {
+        let ptr = from.as_mut_ptr();
+        let length = from.len() * 4;
+        let capacity = from.capacity() * 4;
+        let new = unsafe {
+            Vec::from_raw_parts(ptr as *mut u8, length, capacity)
+        };
+        std::mem::forget(from);
+        new
+    }
+
+    fn fast_nested(mut from: Vec<u8>) -> Vec<Pixel> {
+        let ptr = from.as_mut_ptr();
+        let length = from.len() / 4;
+        let capacity = from.capacity() / 4;
+        let mut new = unsafe {
+            Vec::from_raw_parts(ptr as *mut Pixel, length, capacity)
+        };
+        std::mem::forget(from);
+        new
     }
 }
 
@@ -413,27 +444,6 @@ fn render_stats(
     draw(ctx, &stat_text, DrawParam::default().dest(text_location))
 }
 
-fn fast_flatten(mut from: Vec<[u8; 4]>) -> Vec<u8> {
-    let ptr = from.as_mut_ptr();
-    let length = from.len() * 4;
-    let capacity = from.capacity() * 4;
-    let new = unsafe {
-        Vec::from_raw_parts(ptr as *mut u8, length, capacity)
-    };
-    std::mem::forget(from);
-    new
-}
-
-fn fast_nested(mut from: Vec<u8>) -> Vec<[u8; 4]> {
-    let ptr = from.as_mut_ptr();
-    let length = from.len() / 4;
-    let capacity = from.capacity() / 4;
-    let mut new = unsafe {
-        Vec::from_raw_parts(ptr as *mut [u8; 4], length, capacity)
-    };
-    std::mem::forget(from);
-    new
-}
 
 fn render_mandel(
     ctx: &mut Context,
@@ -461,7 +471,7 @@ fn render_mandel(
         // ;
 //        let mut set_buffer = vec![0f64; ((FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize)];
 
-        let mut set = fast_nested(pix_buff.take_buffer().unwrap());
+        let mut set = pix_buff.take();
         (0..(FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize).into_par_iter().map(|idx| {
             let x = idx % FRAC_SIZE_WIDTH as usize;
             let y = idx / FRAC_SIZE_WIDTH as usize;
@@ -472,9 +482,14 @@ fn render_mandel(
             );
             is_in_set
         }).map(|item| {
-            [0, 0, 255, if item == 0.0 { 255 } else { (item * 255.0) as u8 }]
+            Pixel {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: if item == 0.0 { 255 } else { (item * 255.0) as u8 }
+            }
         }).collect_into_vec(&mut set);
-        pix_buff.use_buffer(fast_flatten(set));
+        pix_buff.replace(set);
 
 
 
@@ -489,7 +504,7 @@ fn render_mandel(
         ctx,
         FRAC_SIZE_WIDTH as u16,
         FRAC_SIZE_HEIGHT as u16,
-        &pix_buff.get_buffer(),
+        &pix_buff.get_raw(),
     )
     .unwrap();
 
