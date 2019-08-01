@@ -14,12 +14,8 @@ use std::{
     io::{prelude::*, BufReader, Write},
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex},
 };
 
-//struct MenuState {
-//    dt: std::time::Duration,
-//}
 #[repr(C)]
 struct Pixel {
     r: u8,
@@ -28,6 +24,8 @@ struct Pixel {
     a: u8,
 }
 
+
+#[allow(dead_code)]
 impl Pixel {
     pub fn to_tuple(self) -> (u8, u8, u8, u8) {
         (self.r, self.g, self.b, self.a)
@@ -43,11 +41,11 @@ struct PixelBuffer {
     row_length: usize,
 }
 
+#[allow(dead_code)]
 impl PixelBuffer {
     pub fn new(width: usize, height: usize) -> PixelBuffer {
         let blank_pix = vec![0, 0, 0, 0];
         let mut buffer = Vec::with_capacity((FRAC_SIZE_WIDTH * FRAC_SIZE_HEIGHT * 4f64) as usize);
-
         for _ in 0..height as usize {
             for _ in 0..width as usize {
                 buffer.append(&mut blank_pix.clone());
@@ -86,7 +84,7 @@ impl PixelBuffer {
     pub fn write_pixel(&mut self, x: usize, y: usize, pix: Pixel) {
         let idx = y * (self.row_length * 4) + (x * 4);
         let (r, g, b, a) = pix.to_tuple();
-        let mut buffer = self.buffer.as_mut().unwrap();
+        let buffer = self.buffer.as_mut().unwrap();
         buffer[idx] = r;
         buffer[idx + 1] = g;
         buffer[idx + 2] = b;
@@ -99,7 +97,7 @@ impl PixelBuffer {
         let y = pix_idx / self.row_length;
         let x = pix_idx % self.row_length;
         let idx = y * (self.row_length * 4) + (x * 4);
-        let mut buffer = self.buffer.as_mut().unwrap();
+        let buffer = self.buffer.as_mut().unwrap();
         buffer[idx] = r;
         buffer[idx + 1] = g;
         buffer[idx + 2] = b;
@@ -122,7 +120,7 @@ impl PixelBuffer {
         let ptr = from.as_mut_ptr();
         let length = from.len() / 4;
         let capacity = from.capacity() / 4;
-        let mut new = unsafe {
+        let new = unsafe {
             Vec::from_raw_parts(ptr as *mut Pixel, length, capacity)
         };
         std::mem::forget(from);
@@ -147,7 +145,6 @@ struct PlayingState {
     fractal_iterations: f64,
     fractal_center_x: f64,
     fractal_center_y: f64,
-    mouse_down: bool,
     magnitude_scale: f64,
     movement_mods: Vec<Movement>
 }
@@ -166,7 +163,6 @@ impl PlayingState {
             fractal_iterations: ITERATIONS,
             fractal_center_x: FRACTAL_CENTER_X,
             fractal_center_y: FRACTAL_CENTER_Y,
-            mouse_down: false,
             magnitude_scale: 1.0,
             movement_mods: vec![]
         }
@@ -196,11 +192,13 @@ impl ggez::event::EventHandler for PlayingState {
         Ok(())
     }
     fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
-        clear(ctx, WHITE);
+        clear(ctx, BLACK);
 
         // This app use's it's own ticklist buffer in order to get a more accurate framerate over the past
         // 5 frames instead of ggez's 200 frame average for fps
         self.frame_ticks = update_tick_list(&self.frame_ticks, ctx);
+
+        // Use the delta time to apply movement
         {
             let delta = timer::delta(ctx).subsec_millis();
             for movement in &self.movement_mods {
@@ -217,11 +215,12 @@ impl ggez::event::EventHandler for PlayingState {
                     },
                     Down => {
                         self.fractal_center_y += (0.0003 * self.magnitude_scale) * delta as f64;
-                    },
-                    _ => {}
+                    }
                 }
             }
         }
+
+        // Render mandel fractal
         let fractal_rendered = render_mandel(
             ctx,
             &mut self.fractal_buffer,
@@ -244,26 +243,7 @@ impl ggez::event::EventHandler for PlayingState {
         present(ctx)
     }
 
-    fn mouse_button_down_event(
-        &mut self,
-        _ctx: &mut Context,
-        _button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
-        self.mouse_down = true;
-    }
-
-    fn mouse_button_up_event(
-        &mut self,
-        _ctx: &mut Context,
-        _button: MouseButton,
-        _x: f32,
-        _y: f32,
-    ) {
-        self.mouse_down = false;
-    }
-    fn key_down_event(&mut self, ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods, repeat: bool) {
+    fn key_down_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods, repeat: bool) {
         if repeat { return }
         use KeyCode::*;
         match keycode {
@@ -409,11 +389,11 @@ fn load_coordinates() -> Result<(f64, f64, f64, f64), Box<dyn std::error::Error>
 }
 
 fn render_stats(
-    _stat: &str,
+    stat: &str,
     ctx: &mut Context,
     state: &mut PlayingState,
 ) -> std::result::Result<(), ggez::GameError> {
-    let stat = _stat.to_string();
+    let stat = stat.to_string();
 
     let window_width = graphics::screen_coordinates(ctx).w;
     let window_height = graphics::screen_coordinates(ctx).h;
@@ -428,7 +408,6 @@ fn render_stats(
     // Draw delta time to screen
     if stat == "delta" {
         let frame_time = timer::delta(ctx).subsec_millis();
-
         text_location = Point2::new(window_width - 240.0, 0.0);
         stat_text = Text::new(TextFragment {
             text: format!("Last Frame: {:?}ms", frame_time),
@@ -437,10 +416,10 @@ fn render_stats(
             scale,
         });
     }
+
     // Draw fractal stat's to screen
     else if stat == "fractal" {
         text_location = Point2::new(1.5, window_height / 2.0);
-
         stat_text = Text::new(TextFragment {
             text: format!(
                 "Iterations: {:?}\nZoom: {:?}\nx:{:}\ny:{:}\nMagnitude:{}",
@@ -455,10 +434,10 @@ fn render_stats(
             scale,
         });
     }
+
     // Draw time since start to screen
     else if stat == "time" {
         let running_time = timer::time_since_start(ctx).as_secs();
-
         text_location = Point2::new(window_width - 350.0, 0.0);
         stat_text = Text::new(TextFragment {
             text: format!("Time: {:?}s", running_time),
@@ -467,10 +446,10 @@ fn render_stats(
             scale,
         });
     }
+
     // Draw fps to screen
     else if stat == "fps" {
         let mut tick_total: i16 = 0;
-
         for tick in state.frame_ticks.to_owned() {
             tick_total += tick
         }
@@ -484,7 +463,6 @@ fn render_stats(
         });
     } else {
         let fps = timer::fps(ctx);
-
         stat_text = Text::new(TextFragment {
             text: format!("Fps: {:.1}", fps),
             color,
@@ -500,29 +478,20 @@ fn render_stats(
 fn render_mandel(
     ctx: &mut Context,
     pix_buff: &mut PixelBuffer,
-    set_buffer: &mut Vec<f64>,
+    _set_buffer: &mut Vec<f64>,
     mut rendered: bool,
     zoom: f64,
     iterations: f64,
     center_x: f64,
     center_y: f64,
 ) -> bool {
+
     // Treat the center of the image as the center of the fractal for zooming in
     let min_x = center_x - (zoom / 2.0);
     let min_y = center_y - (zoom / 2.0);
 
-    //    let pix_buff_ref = Arc::clone(&pix_buff);
-
     // If the fractal has already been rendered, don't re-render on every frame
-//    let mut set_buffer = Vec::with_capacity((FRAC_SIZE_WIDTH * FRAC_SIZE_HEIGHT) as usize);
     if true {
-
-        // let mut iter = pix_buff.into_iter().step_by(4).enumerate();
-        // let mut iter = iter.by_ref();
-
-        // ;
-//        let mut set_buffer = vec![0f64; ((FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize)];
-
         let mut set = pix_buff.take();
         (0..(FRAC_SIZE_HEIGHT * FRAC_SIZE_WIDTH) as usize).into_par_iter().map(|idx| {
             let x = idx % FRAC_SIZE_WIDTH as usize;
@@ -538,20 +507,15 @@ fn render_mandel(
                 r: 0,
                 g: 0,
                 b: 255,
-                a: if item == 0.0 { 255 } else { (item * 255.0) as u8 }
+                a: if item == 0.0 { 0 } else { (item * 255.0) as u8 }
             }
         }).collect_into_vec(&mut set);
         pix_buff.replace(set);
-
-
-
-        // println!("{:?}", pix_buff.count());
 
     }
     rendered = !rendered;
 
     // Create the fractal image from the computed pixel buffer
-    //    let pix_buff = pix_buff_ref.lock().unwrap();
     let fractal_image = Image::from_rgba8(
         ctx,
         FRAC_SIZE_WIDTH as u16,
@@ -595,7 +559,6 @@ fn compute_mandel(x: f64, y: f64, iterations: f64) -> f64 {
 
 pub fn main() {
 
-    rayon::ThreadPoolBuilder::new().num_threads(0).build_global();
     // Set the default startup state to playing
     let state_playing = &mut PlayingState::new();
 
