@@ -72,6 +72,10 @@ PRs accepted.
 
 Please conform to the [karma](https://karma-runner.github.io/3.0/dev/git-commit-msg.html) commit convention.
 
+### Contributors
+
+@thecallsign
+
 ## License
 
 GNU Affero General Public License v3.0 only @ terrahop
