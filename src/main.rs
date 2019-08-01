@@ -129,6 +129,13 @@ impl PixelBuffer {
         new
     }
 }
+#[derive(PartialEq, Eq)]
+enum Movement {
+    Left,
+    Right,
+    Down,
+    Up
+}
 
 struct PlayingState {
     dt: std::time::Duration,
@@ -142,6 +149,7 @@ struct PlayingState {
     fractal_center_y: f64,
     mouse_down: bool,
     magnitude_scale: f64,
+    movement_mods: Vec<Movement>
 }
 
 impl PlayingState {
@@ -160,6 +168,7 @@ impl PlayingState {
             fractal_center_y: FRACTAL_CENTER_Y,
             mouse_down: false,
             magnitude_scale: 1.0,
+            movement_mods: vec![]
         }
     }
 }
@@ -192,7 +201,27 @@ impl ggez::event::EventHandler for PlayingState {
         // This app use's it's own ticklist buffer in order to get a more accurate framerate over the past
         // 5 frames instead of ggez's 200 frame average for fps
         self.frame_ticks = update_tick_list(&self.frame_ticks, ctx);
-
+        {
+            let delta = timer::delta(ctx).subsec_millis();
+            for movement in &self.movement_mods {
+                use Movement::*;
+                match movement {
+                    Left => {
+                        self.fractal_center_x -= (0.0003 * self.magnitude_scale) * delta as f64;
+                    },
+                    Right => {
+                        self.fractal_center_x += (0.0003 * self.magnitude_scale) * delta as f64;
+                    },
+                    Up => {
+                        self.fractal_center_y -= (0.0003 * self.magnitude_scale) * delta as f64;
+                    },
+                    Down => {
+                        self.fractal_center_y += (0.0003 * self.magnitude_scale) * delta as f64;
+                    },
+                    _ => {}
+                }
+            }
+        }
         let fractal_rendered = render_mandel(
             ctx,
             &mut self.fractal_buffer,
@@ -234,6 +263,25 @@ impl ggez::event::EventHandler for PlayingState {
     ) {
         self.mouse_down = false;
     }
+    fn key_down_event(&mut self, ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods, repeat: bool) {
+        if repeat { return }
+        use KeyCode::*;
+        match keycode {
+            Left => {
+                self.movement_mods.push(Movement::Left);
+            },
+            Right => {
+                self.movement_mods.push(Movement::Right);
+            },
+            Up => {
+                self.movement_mods.push(Movement::Up);
+            },
+            Down => {
+                self.movement_mods.push(Movement::Down);
+            },
+            _ => {}
+        }
+    }
 
     fn key_up_event(&mut self, ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods) {
         // Zoom Out
@@ -250,22 +298,26 @@ impl ggez::event::EventHandler for PlayingState {
         }
         // Move View Up
         if keycode == KeyCode::Up {
-            self.fractal_center_y -= 0.05 * self.magnitude_scale;
+            let (idx, _) = self.movement_mods.iter().enumerate().find(|(_, item) | **item == Movement::Up).unwrap();
+            self.movement_mods.remove(idx);
             self.fractal_rendered = false;
         }
         // Move View Down
         if keycode == KeyCode::Down {
-            self.fractal_center_y += 0.05 * self.magnitude_scale;
+            let (idx, _) = self.movement_mods.iter().enumerate().find(|(_, item) | **item == Movement::Down).unwrap();
+            self.movement_mods.remove(idx);
             self.fractal_rendered = false;
         }
         // Move View Left
         if keycode == KeyCode::Left {
-            self.fractal_center_x -= 0.05 * self.magnitude_scale;
+            let (idx, _) = self.movement_mods.iter().enumerate().find(|(_, item) | **item == Movement::Left).unwrap();
+            self.movement_mods.remove(idx);
             self.fractal_rendered = false;
         }
         // Move View Right
         if keycode == KeyCode::Right {
-            self.fractal_center_x += 0.05 * self.magnitude_scale;
+            let (idx, _) = self.movement_mods.iter().enumerate().find(|(_, item) | **item == Movement::Right).unwrap();
+            self.movement_mods.remove(idx);
             self.fractal_rendered = false;
         }
         // Increase iterations
